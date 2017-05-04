@@ -7,7 +7,7 @@ include("example.jl")
 include("sort.jl")
 include("split.jl")
 
-export Tree, fit, predict
+export Tree, fit!, predict
 
 abstract Element
 
@@ -97,7 +97,7 @@ function next_index!(tree::Tree)
     tree.index += 1
 end
 
-function fit(tree::Tree, example::Example, criterion::Criterion, max_features::Int, max_depth::Int, min_samples_split::Int)
+function !(tree::Tree, example::Example, criterion::Criterion, max_features::Int, max_depth::Int, min_samples_split::Int)
     if isa(criterion, ClassificationCriterion)
         splitter = ClassificationSplitter{typeof(criterion)}
     elseif isa(criterion, RegressionCriterion)

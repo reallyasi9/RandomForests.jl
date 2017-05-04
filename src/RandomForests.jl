@@ -3,7 +3,7 @@ module RandomForests
 export
     RandomForestClassifier,
     RandomForestRegressor,
-    fit,
+    fit!,
     predict,
     feature_importances,
     oob_error
