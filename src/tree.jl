@@ -73,8 +73,8 @@ end
 type Tree
     index::Int
     nodes::Vector{Element}
-
-    Tree() = new(0, Element[])
+    sample_weights::Vector{Float64}
+    Tree() = new(0, Element[], Float64[])
 end
 
 getnode(tree::Tree, index::Int) = tree.nodes[index]
@@ -97,7 +97,7 @@ function next_index!(tree::Tree)
     tree.index += 1
 end
 
-function !(tree::Tree, example::Example, criterion::Criterion, max_features::Int, max_depth::Int, min_samples_split::Int)
+function fit!(tree::Tree, example::Example, criterion::Criterion, max_features::Int, max_depth::Int, min_samples_split::Int)
     if isa(criterion, ClassificationCriterion)
         splitter = ClassificationSplitter{typeof(criterion)}
     elseif isa(criterion, RegressionCriterion)
@@ -110,7 +110,7 @@ function !(tree::Tree, example::Example, criterion::Criterion, max_features::Int
     sample_range = 1:length(samples)
     next_index!(tree)
     args = SplitArgs(tree.index, 1, sample_range)
-    build_tree(tree, example, samples, args, params)
+    build_tree!(tree, example, samples, args, params)
     return
 end
 
@@ -136,7 +136,7 @@ function leaf(example::Example, samples, criterion::ClassificationCriterion)
     ClassificationLeaf(example, samples, impurity(samples, example, criterion))
 end
 
-function build_tree(tree::Tree, example::Example, samples::Vector{Int}, args::SplitArgs, params::Params)
+function build_tree!(tree::Tree, example::Example, samples::Vector{Int}, args::SplitArgs, params::Params)
     n_features = example.n_features
     range = args.range  # shortcut
     n_samples = length(range)
@@ -180,8 +180,8 @@ function build_tree(tree::Tree, example::Example, samples::Vector{Int}, args::Sp
         next_depth = args.depth + 1
         left_node = SplitArgs(left, next_depth, range[1:best_boundary])
         right_node = SplitArgs(right, next_depth, range[best_boundary+1:end])
-        build_tree(tree, example, samples, left_node, params)
-        build_tree(tree, example, samples, right_node, params)
+        build_tree!(tree, example, samples, left_node, params)
+        build_tree!(tree, example, samples, right_node, params)
     end
 
     return

@@ -28,7 +28,9 @@ function RandomForestRegressor(;n_estimators::Int=10, max_features::Union{Intege
     RandomForest{Regressor}(n_estimators, max_features, max_depth, min_samples_split, :mse)
 end
 
-function fit!{T<:TabularData}(rf::RandomForestRegressor, x::T, y::AbstractVector)
+tuple_add(x::Tuple, y::Tuple) = x[1] + y[1], x[2] + y[2]
+
+function fit!{T<:TabularData}(rf::RandomForestRegressor, x::T, y::AbstractVector; do_oob=false)
     learner = Regressor(rf, x, y)
     n_samples = learner.n_samples
 
@@ -38,36 +40,36 @@ function fit!{T<:TabularData}(rf::RandomForestRegressor, x::T, y::AbstractVector
     oob_predict = zeros(n_samples)
     oob_count = zeros(Int, n_samples)
 
-    for b in 1:rf.n_estimators
-        rand!(bootstrap, 1:n_samples)
-        set_weight!(bootstrap, sample_weight)
+    learner.trees = @parallel (vcat) for b in 1:rf.n_estimators
+        bootstrap = rand(1:n_samples, n_samples)
+        sample_weight = sample_weights(bootstrap)
         example = Trees.Example{T}(x, y, sample_weight)
         tree = Trees.Tree()
         Trees.fit!(tree, example, rf.criterion, learner.n_max_features, rf.max_depth, rf.min_samples_split)
-        learner.trees[b] = tree
-
-        for s in 1:n_samples
-            if sample_weight[s] == 0.0
-                oob_predict[s] += Trees.predict(tree, vec(x[s, :]))
-                oob_count[s] += 1
-            end
+        if do_oob
+            tree.sample_weights = sample_weight
         end
+        tree
     end
-
-    oob_error = 0.
-
-    for s in 1:n_samples
-        if oob_count[s] == 0
-            continue
+    if do_oob
+        oob = @parallel (tuple_add) for s in 1:n_samples
+            oob_predict = 0.
+            oob_count = 0
+            for tree in learner.trees
+                if tree.sample_weights[s] == 0.0
+                    oob_predict += Trees.predict(tree, vec(x[s, :]))
+                    oob_count += 1
+                end
+            end
+            if oob_count == 0
+                return 0, 0
+            end
+            (y[s] - oob_predict / oob_count)^2, (oob_count > 0 ? 1. : 0.)
         end
-
-        avg = oob_predict[s] / oob_count[s]
-        d = y[s] - avg
-        oob_error += d * d
+        learner.oob_error = sqrt(oob[1] / oob[2])
     end
 
     set_improvements!(learner)
-    learner.oob_error = sqrt(oob_error / countnz(oob_count))
     rf.learner = learner
     return
 end

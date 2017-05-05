@@ -6,7 +6,7 @@ function sort!(samples::AbstractVector, feature::AbstractVector, range::UnitRang
     # inplace sort `samples` and `feature` vector in one shot, along with `feature`, between `range`
     len = length(range)
     @assert len == length(feature) <= length(samples)
-    sort!(sub(samples, range), feature, 1, endof(feature))
+    sort!(view(samples, range), feature, 1, endof(feature))
 end
 
 function sort!(x::AbstractVector, y::AbstractVector, lo::Int, hi::Int)
