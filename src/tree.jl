@@ -18,7 +18,10 @@ type Node{T} <: Element
     n_samples::Int
     left::Int
     right::Int
+    depth::Int
 end
+
+Base.show(io::Base.IO, node::Node) = print(io, "Node{depth: ", node.depth, ", feature[", node.feature, "] <= ", node.threshold, ", splits ", node.n_samples, " with impurity ", node.impurity, "}")
 
 abstract Leaf <: Element
 
@@ -26,16 +29,19 @@ type ClassificationLeaf <: Leaf
     counts::Vector{Int}
     impurity::Float64
     n_samples::Int
+    depth::Int
 
-    function ClassificationLeaf(example::Example, samples::Vector{Int}, impurity::Float64)
+    function ClassificationLeaf(example::Example, samples::Vector{Int}, impurity::Float64, depth::Int)
         counts = zeros(Int, example.n_labels)
         for s in samples
             label = example.y[s]
             counts[label] += round(Int, example.sample_weight[s])
         end
-        new(counts, impurity, length(samples))
+        new(counts, impurity, length(samples), example, depth)
     end
 end
+
+Base.show(io::Base.IO, node::ClassificationLeaf) = print(io, "ClassificationLeaf{depth: ", node.depth, ", contains ", node.n_samples, " with impurity ", node.impurity, " and majority ",  majority(node), "}")
 
 majority(leaf::ClassificationLeaf) = indmax(leaf.counts)
 
@@ -43,11 +49,14 @@ type RegressionLeaf <: Leaf
     mean::Float64
     impurity::Float64
     n_samples::Int
+    depth::Int
 
-    function RegressionLeaf(example::Example, samples::Vector{Int}, impurity::Float64)
-        new(mean(example.y[samples]), impurity, length(samples))
+    function RegressionLeaf(example::Example, samples::Vector{Int}, impurity::Float64, depth::Int)
+        new(mean(example.y[samples]), impurity, length(samples), depth)
     end
 end
+
+Base.show(io::Base.IO, node::RegressionLeaf) = print(io, "RegressionLeaf{depth: ", node.depth, ", contains ", node.n_samples, " with impurity ", node.impurity, " and mean ",  mean(node), "}")
 
 Base.mean(leaf::RegressionLeaf) = leaf.mean
 
@@ -77,6 +86,8 @@ type Tree
     Tree() = new(0, Element[], Float64[])
 end
 
+Base.show(io::Base.IO, tree::Tree) = print(io, "Tree{", tree.index, " element", (tree.index != 1 ? "s" : ""), " and ", countleaves(tree), " leaves, height: ", height(tree), "}")
+
 getnode(tree::Tree, index::Int) = tree.nodes[index]
 getroot(tree::Tree) = getnode(tree, 1)
 getleft(tree::Tree, node::Node) = getnode(tree, node.left)
@@ -86,6 +97,9 @@ isnode(tree::Tree, index::Int) = isa(tree.nodes[index], Node)
 isleaf(tree::Tree, index::Int) = isa(tree.nodes[index], Leaf)
 isnode(node::Element) = isa(node, Node)
 isleaf(node::Element) = isa(node, Leaf)
+
+countleaves(tree::Tree) = sum(1 for x in LeafIterator(tree))
+countnodes(tree::Tree) = tree.index
 
 impurity(node::Node) = node.impurity
 impurity(leaf::Leaf) = leaf.impurity
@@ -142,6 +156,7 @@ function push_children!(queue::Vector{Int}, tree::Tree, e::Node)
     push!(queue, e.left)
 end
 
+height(tree::Tree) = isempty(tree.nodes) ? 0 : mapreduce(x -> x.depth, max, LeafIterator(tree))
 
 function next_index!(tree::Tree)
     push!(tree.nodes, undef)
@@ -179,12 +194,12 @@ function where(v::AbstractVector)
     indices
 end
 
-function leaf(example::Example, samples, criterion::RegressionCriterion)
-    RegressionLeaf(example, samples, impurity(samples, example, criterion))
+function leaf(example::Example, samples, criterion::RegressionCriterion, depth::Int)
+    RegressionLeaf(example, samples, impurity(samples, example, criterion), depth)
 end
 
-function leaf(example::Example, samples, criterion::ClassificationCriterion)
-    ClassificationLeaf(example, samples, impurity(samples, example, criterion))
+function leaf(example::Example, samples, criterion::ClassificationCriterion, depth::Int)
+    ClassificationLeaf(example, samples, impurity(samples, example, criterion), depth)
 end
 
 function build_tree!(tree::Tree, example::Example, samples::Vector{Int}, args::SplitArgs, params::Params)
@@ -193,7 +208,7 @@ function build_tree!(tree::Tree, example::Example, samples::Vector{Int}, args::S
     n_samples = length(range)
 
     if args.depth >= params.max_depth || n_samples < params.min_samples_split
-        tree.nodes[args.index] = leaf(example, samples[range], params.criterion)
+        tree.nodes[args.index] = leaf(example, samples[range], params.criterion, args.depth)
         return
     end
 
@@ -219,14 +234,14 @@ function build_tree!(tree::Tree, example::Example, samples::Vector{Int}, args::S
     end
 
     if best_feature == 0
-        tree.nodes[args.index] = leaf(example, samples[range], params.criterion)
+        tree.nodes[args.index] = leaf(example, samples[range], params.criterion, args.depth)
     else
         feature = example.x[samples[range], best_feature]
         sort!(samples, feature, range)
 
         left = next_index!(tree)
         right = next_index!(tree)
-        tree.nodes[args.index] = Node(best_feature, best_threshold, best_impurity, n_samples, left, right)
+        tree.nodes[args.index] = Node(best_feature, best_threshold, best_impurity, n_samples, left, right, args.depth)
 
         next_depth = args.depth + 1
         left_node = SplitArgs(left, next_depth, range[1:best_boundary])
