@@ -92,6 +92,57 @@ impurity(leaf::Leaf) = leaf.impurity
 n_samples(node::Node) = node.n_samples
 n_samples(leaf::Leaf) = leaf.n_samples
 
+# Iterator interface to Tree--traverses leaves in left-to-right order
+type LeafIterator
+    tree::Tree
+end
+
+function getnextleafindex(tree::Tree, index::Int)
+    i = index + 1
+    while i < length(tree.nodes) && isnode(getnode(tree, i))
+        i += 1
+    end
+    return i
+end
+
+function Base.start(li::LeafIterator)
+    if isempty(li.tree.nodes)
+        return 0
+    end
+    getnextleafindex(li.tree, 0)
+end
+
+Base.next(li::LeafIterator, index::Int) = getnode(li.tree, index), getnextleafindex(li.tree, index)
+
+Base.done(li::LeafIterator, index::Int) = index == 0 || index > length(li.tree.nodes)
+
+# Iterator interface to Tree--traverses nodes in depth-first order
+type DFSIterator
+    tree::Tree
+end
+
+function Base.start(ni::DFSIterator)
+    if isempty(ni.tree.nodes)
+        return Vector{Int}()
+    end
+    return [1]::Vector{Int}
+end
+
+function Base.next(ni::DFSIterator, queue::Vector{Int})
+    e = getnode(ni.tree, pop!(queue))
+    push_children!(queue, ni.tree, e)
+    e, queue
+end
+
+Base.done(ni::DFSIterator, queue::Vector{Int}) = isempty(queue)
+
+push_children!(queue::Vector{Int}, tree::Tree, e::Leaf) = nothing
+function push_children!(queue::Vector{Int}, tree::Tree, e::Node)
+    push!(queue, e.right)
+    push!(queue, e.left)
+end
+
+
 function next_index!(tree::Tree)
     push!(tree.nodes, undef)
     tree.index += 1
