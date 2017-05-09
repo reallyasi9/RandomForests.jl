@@ -16,12 +16,12 @@ type Node{T} <: Element
     threshold::T
     impurity::Float64
     n_samples::Int
-    left::Int
-    right::Int
+    left::Element
+    right::Element
     depth::Int
 end
 
-Base.show(io::Base.IO, node::Node) = print(io, "Node{depth: ", node.depth, ", feature[", node.feature, "] <= ", node.threshold, ", splits ", node.n_samples, " with impurity ", node.impurity, "}")
+Base.show(io::Base.IO, node::Node) = print(io, "Node{depth: ", node.depth, ", feature[", node.feature, "] <= ", node.threshold, ", splits ", node.n_samples, " samples with impurity ", node.impurity, "}")
 
 abstract Leaf <: Element
 
@@ -37,7 +37,7 @@ type ClassificationLeaf <: Leaf
             label = example.y[s]
             counts[label] += round(Int, example.sample_weight[s])
         end
-        new(counts, impurity, length(samples), example, depth)
+        new(counts, impurity, length(samples), depth)
     end
 end
 
@@ -63,7 +63,7 @@ Base.mean(leaf::RegressionLeaf) = leaf.mean
 immutable Undef <: Element; end
 const undef = Undef()
 
-# parameters to build a tree
+"Parameters to build a tree"
 immutable Params
     criterion::Criterion
     splitter  # splitter constructor
@@ -72,96 +72,82 @@ immutable Params
     min_samples_split::Int
 end
 
-# bundled arguments for splitting a node
+"Bundled arguments for splitting a node"
 immutable SplitArgs
-    index::Int
     depth::Int
     range::UnitRange{Int}
 end
 
 type Tree
-    index::Int
-    nodes::Vector{Element}
+    root::Element
     sample_weights::Vector{Float64}
-    Tree() = new(0, Element[], Float64[])
+    Tree() = new(undef, Float64[])
 end
 
-Base.show(io::Base.IO, tree::Tree) = print(io, "Tree{", tree.index, " element", (tree.index != 1 ? "s" : ""), " and ", countleaves(tree), " leaves, height: ", height(tree), "}")
+Base.show(io::Base.IO, tree::Tree) = print(io, "Tree{", nnodes(tree), " elements and ", nleaves(tree), " leaves, height: ", height(tree), "}")
 
-getnode(tree::Tree, index::Int) = tree.nodes[index]
-getroot(tree::Tree) = getnode(tree, 1)
-getleft(tree::Tree, node::Node) = getnode(tree, node.left)
-getright(tree::Tree, node::Node) = getnode(tree, node.right)
+root(tree::Tree) = tree.root
+nnodes(tree::Tree) = sum(1 for x in DFSIterator(tree))
+sampleweights(tree::Tree) = tree.sample_weights
 
-isnode(tree::Tree, index::Int) = isa(tree.nodes[index], Node)
-isleaf(tree::Tree, index::Int) = isa(tree.nodes[index], Leaf)
-isnode(node::Element) = isa(node, Node)
-isleaf(node::Element) = isa(node, Leaf)
-
-countleaves(tree::Tree) = sum(1 for x in LeafIterator(tree))
-countnodes(tree::Tree) = tree.index
+nleaves(tree::Tree) = sum(1 for x in LeafIterator(tree))
+height(tree::Tree) = tree.root == undef ? 0 : mapreduce(x -> x.depth, max, LeafIterator(tree))
 
 impurity(node::Node) = node.impurity
 impurity(leaf::Leaf) = leaf.impurity
-n_samples(node::Node) = node.n_samples
-n_samples(leaf::Leaf) = leaf.n_samples
+nsamples(node::Node) = node.n_samples
+nsamples(leaf::Leaf) = leaf.n_samples
 
-# Iterator interface to Tree--traverses leaves in left-to-right order
+"Iterator interface to Tree--traverses leaves in depth-first order (left-to-right)."
 type LeafIterator
     tree::Tree
 end
 
-function getnextleafindex(tree::Tree, index::Int)
-    i = index + 1
-    while i < length(tree.nodes) && isnode(getnode(tree, i))
-        i += 1
-    end
-    return i
-end
-
 function Base.start(li::LeafIterator)
-    if isempty(li.tree.nodes)
-        return 0
+    if root(li.tree) == undef
+        return Vector{Element}()
     end
-    getnextleafindex(li.tree, 0)
+    return Vector{Element}([root(li.tree)])
 end
 
-Base.next(li::LeafIterator, index::Int) = getnode(li.tree, index), getnextleafindex(li.tree, index)
+function Base.next(li::LeafIterator, queue::Vector{Element})
+    e = undef
+    while !isa(e, Leaf)
+        e = pop!(queue)
+        push_children!(queue, e)
+    end
+    e, queue
+end
 
-Base.done(li::LeafIterator, index::Int) = index == 0 || index > length(li.tree.nodes)
+Base.done(li::LeafIterator, queue::Vector{Element}) = isempty(queue)
 
-# Iterator interface to Tree--traverses nodes in depth-first order
+"Iterator interface to Tree--traverses nodes in depth-first order."
 type DFSIterator
     tree::Tree
 end
 
 function Base.start(ni::DFSIterator)
-    if isempty(ni.tree.nodes)
-        return Vector{Int}()
+    if root(ni.tree) == undef
+        return Vector{Element}()
     end
-    return [1]::Vector{Int}
+    return Vector{Element}([root(ni.tree)])
 end
 
-function Base.next(ni::DFSIterator, queue::Vector{Int})
-    e = getnode(ni.tree, pop!(queue))
-    push_children!(queue, ni.tree, e)
+function Base.next(ni::DFSIterator, queue::Vector{Element})
+    e = pop!(queue)
+    push_children!(queue, e)
     e, queue
 end
 
-Base.done(ni::DFSIterator, queue::Vector{Int}) = isempty(queue)
+Base.done(ni::DFSIterator, queue::Vector{Element}) = isempty(queue)
 
-push_children!(queue::Vector{Int}, tree::Tree, e::Leaf) = nothing
-function push_children!(queue::Vector{Int}, tree::Tree, e::Node)
+function push_children!(queue::Vector{Element}, e::Leaf)
+end
+function push_children!(queue::Vector{Element}, e::Node)
     push!(queue, e.right)
     push!(queue, e.left)
 end
 
-height(tree::Tree) = isempty(tree.nodes) ? 0 : mapreduce(x -> x.depth, max, LeafIterator(tree))
-
-function next_index!(tree::Tree)
-    push!(tree.nodes, undef)
-    tree.index += 1
-end
 
 function fit!(tree::Tree, example::Example, criterion::Criterion, max_features::Int, max_depth::Int, min_samples_split::Int)
     if isa(criterion, ClassificationCriterion)
@@ -174,11 +160,11 @@ function fit!(tree::Tree, example::Example, criterion::Criterion, max_features::
     params = Params(criterion, splitter, max_features, max_depth, min_samples_split)
     samples = where(example.sample_weight)
     sample_range = 1:length(samples)
-    next_index!(tree)
-    args = SplitArgs(tree.index, 1, sample_range)
+    args = SplitArgs(1, sample_range)
     build_tree!(tree, example, samples, args, params)
     return
 end
+
 
 function where(v::AbstractVector)
     n = countnz(v)
@@ -194,30 +180,41 @@ function where(v::AbstractVector)
     indices
 end
 
+
 function leaf(example::Example, samples, criterion::RegressionCriterion, depth::Int)
     RegressionLeaf(example, samples, impurity(samples, example, criterion), depth)
 end
+
 
 function leaf(example::Example, samples, criterion::ClassificationCriterion, depth::Int)
     ClassificationLeaf(example, samples, impurity(samples, example, criterion), depth)
 end
 
-function build_tree!(tree::Tree, example::Example, samples::Vector{Int}, args::SplitArgs, params::Params)
+
+"""
+    build_subtree(example, samples, args, params)
+
+Builds and returns an Element that either splits samples using args (a Node), or contains all samples (a Leaf).
+"""
+function build_subtree(example::Example, samples::Vector{Int}, args::SplitArgs, params::Params)
     n_features = example.n_features
     range = args.range  # shortcut
     n_samples = length(range)
 
     if args.depth >= params.max_depth || n_samples < params.min_samples_split
-        tree.nodes[args.index] = leaf(example, samples[range], params.criterion, args.depth)
-        return
+        return leaf(example, samples[range], params.criterion, args.depth)
     end
 
     best_feature = 0
     best_impurity = Inf
+    samp = samples[range]
+    # Why local?
     local best_threshold, best_boundary
 
+    # This is the CART part.
+    # TODO: replace with a method to calculate splits in other ways.
     for k in sample(1:n_features, params.max_features, replace=false)
-        feature = example.x[samples[range], k]
+        feature = example.x[samp, k]
         sort!(samples, feature, range)
         splitter = params.splitter(samples, feature, range, example)
 
@@ -234,45 +231,46 @@ function build_tree!(tree::Tree, example::Example, samples::Vector{Int}, args::S
     end
 
     if best_feature == 0
-        tree.nodes[args.index] = leaf(example, samples[range], params.criterion, args.depth)
-    else
-        feature = example.x[samples[range], best_feature]
-        sort!(samples, feature, range)
-
-        left = next_index!(tree)
-        right = next_index!(tree)
-        tree.nodes[args.index] = Node(best_feature, best_threshold, best_impurity, n_samples, left, right, args.depth)
-
-        next_depth = args.depth + 1
-        left_node = SplitArgs(left, next_depth, range[1:best_boundary])
-        right_node = SplitArgs(right, next_depth, range[best_boundary+1:end])
-        build_tree!(tree, example, samples, left_node, params)
-        build_tree!(tree, example, samples, right_node, params)
+        # No best: return a leaf with all samples
+        return leaf(example, samples[range], params.criterion, args.depth)
     end
 
-    return
+    feature = example.x[samples[range], best_feature]
+    sort!(samples, feature, range)
+
+    left = undef
+    right = undef
+
+    next_depth = args.depth + 1
+    left_node = SplitArgs(next_depth, range[1:best_boundary])
+    right_node = SplitArgs(next_depth, range[best_boundary+1:end])
+    left = build_subtree(example, samples, left_node, params)
+    right = build_subtree(example, samples, right_node, params)
+    return Node(best_feature, best_threshold, best_impurity, n_samples, left, right, args.depth)
 end
+
+
+function build_tree!(tree::Tree, example::Example, samples::Vector{Int}, args::SplitArgs, params::Params)
+    tree.root = build_subtree(example, samples, args, params)
+end
+
 
 function predict(tree::Tree, x::AbstractVector)
     node = getroot(tree)
+    return predict(node, x)
+end
 
-    while true
-        if isa(node, Node)
-            if x[node.feature] <= node.threshold
-                # go left
-                node = getleft(tree, node)
-            else
-                # go right
-                node = getright(tree, node)
-            end
-        elseif isa(node, ClassificationLeaf)
-            return majority(node)
-        elseif isa(node, RegressionLeaf)
-            return mean(node)
-        else
-            error("found invalid type of node (type: $(typeof(node)))")
-        end
+function predict(node::Node, x::AbstractVector)
+    if x[node.feature] <= node.threshold
+        # go left
+        return predict(node.left, x)
+    else
+        # go right
+        return predict(node.right, x)
     end
 end
+
+predict(leaf::RegressionLeaf, x::AbstractVector) = mean(leaf)
+predict(leaf::ClassificationLeaf, x::AbstractVector) = majority(leaf)
 
 end  # module Trees

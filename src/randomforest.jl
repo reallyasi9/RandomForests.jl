@@ -75,27 +75,24 @@ function set_improvements!(learner)
     improvements = learner.improvements
 
     for tree in learner.trees
-        root = getroot(tree)
-        add_improvements!(tree, root, improvements)
+        add_improvements!(tree.root, improvements)
     end
     normalize!(improvements)
 end
 
-function add_improvements!(tree::Tree, node::Node, improvements::Vector{Float64})
-    left = getleft(tree, node)
-    right = getright(tree, node)
-    n_left_samples = n_samples(left)
-    n_right_samples = n_samples(right)
+function add_improvements!(node::Node, improvements::Vector{Float64})
+    left = node.left
+    right = node.right
+    n_left_samples = left.n_samples
+    n_right_samples = right.n_samples
     averaged_impurity = (impurity(left) * n_left_samples + impurity(right) * n_right_samples) / (n_left_samples + n_right_samples)
     improvement = impurity(node) - averaged_impurity
     improvements[node.feature] += improvement
 
-    add_improvements!(tree, left, improvements)
-    add_improvements!(tree, right, improvements)
+    add_improvements!(left, improvements)
+    add_improvements!(right, improvements)
     return
 end
 
-function add_improvements!(::Tree, ::Leaf, ::Vector{Float64})
-    # do nothing!
-    return
+function add_improvements!(::Leaf, ::Vector{Float64})
 end
