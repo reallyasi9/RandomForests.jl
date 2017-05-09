@@ -150,13 +150,7 @@ end
 
 
 function fit!(tree::Tree, example::Example, criterion::Criterion, max_features::Int, max_depth::Int, min_samples_split::Int)
-    if isa(criterion, ClassificationCriterion)
-        splitter = ClassificationSplitter{typeof(criterion)}
-    elseif isa(criterion, RegressionCriterion)
-        splitter = RegressionSplitter{typeof(criterion)}
-    else
-        error("invalid criterion")
-    end
+    splitter = make_splitter(criterion)
     params = Params(criterion, splitter, max_features, max_depth, min_samples_split)
     samples = where(example.sample_weight)
     sample_range = 1:length(samples)
@@ -164,6 +158,9 @@ function fit!(tree::Tree, example::Example, criterion::Criterion, max_features::
     build_tree!(tree, example, samples, args, params)
     return
 end
+
+make_splitter(criterion::ClassificationCriterion) = ClassificationSplitter{typeof(criterion)}
+make_splitter(criterion::RegressionCriterion) = RegressionSplitter{typeof(criterion)}
 
 
 function where(v::AbstractVector)
