@@ -80,15 +80,18 @@ end
 
 type Tree
     root::Element
-    sample_weights::Vector{Float64}
-    Tree() = new(undef, Float64[])
+    random_seed::UInt32
+    Tree() = new(undef, rand(UInt32))
 end
 
 Base.show(io::Base.IO, tree::Tree) = print(io, "Tree{", nnodes(tree), " elements and ", nleaves(tree), " leaves, height: ", height(tree), "}")
 
 root(tree::Tree) = tree.root
 nnodes(tree::Tree) = sum(1 for x in DFSIterator(tree))
-sampleweights(tree::Tree) = tree.sample_weights
+function sampleweights(tree::Tree, n_samples::Int)
+    bootstrap = rand(MersenneTwister(tree.random_seed), 1:n_samples, n_samples)
+    return counts(bootstrap, n_samples)
+end
 
 nleaves(tree::Tree) = sum(1 for x in LeafIterator(tree))
 height(tree::Tree) = tree.root == undef ? 0 : mapreduce(x -> x.depth, max, LeafIterator(tree))

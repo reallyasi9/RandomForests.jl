@@ -38,14 +38,6 @@ function RandomForestClassifier(;n_estimators::Int=10, max_features::Union{Integ
     RandomForest{Classifier}(n_estimators, max_features, max_depth, min_samples_split, criterion)
 end
 
-function sample_weights(bootstrap::Vector{Int})
-    sample_weight = zeros(Float64, bootstrap)
-    # Count bootstraped samples
-    for i in bootstrap
-        sample_weight[i] += 1.0
-    end
-    return sample_weight
-end
 
 function fit!{T<:TabularData}(rf::RandomForestClassifier, x::T, y::AbstractVector; do_oob::Bool = false)
     learner = Classifier(rf, x, y)
@@ -53,24 +45,21 @@ function fit!{T<:TabularData}(rf::RandomForestClassifier, x::T, y::AbstractVecto
     n_samples = learner.n_samples
 
     learner.trees = @parallel (vcat) for b in 1:rf.n_estimators
-        bootstrap = rand(1:n_samples, n_samples)
-        sample_weight = sample_weights(bootstrap)
-        example = Trees.Example{T}(x, y_encoded, sample_weight)
         tree = Trees.Tree()
+        sample_weight = sampleweights(tree, n_samples)
+        example = Trees.Example{T}(x, y_encoded, sample_weight)
         Trees.fit!(tree, example, rf.criterion, learner.n_max_features, rf.max_depth, rf.min_samples_split)
-        if do_oob
-            tree.sample_weights = sample_weight
-        end
         tree
     end
     oob_error = nothing
     if do_oob
         oob_error = 0
         oob_error = @parallel (+) for tree in learner.trees
+            sample_weight = sampleweights(tree, n_samples)
             hit = 0
             miss = 0
             for s in 1:n_samples
-                if tree.sample_weights[s] != 0.0
+                if sample_weight[s] != 0.0
                     continue
                 end
 

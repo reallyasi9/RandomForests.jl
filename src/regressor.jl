@@ -41,14 +41,10 @@ function fit!{T<:TabularData}(rf::RandomForestRegressor, x::T, y::AbstractVector
     oob_count = zeros(Int, n_samples)
 
     learner.trees = @parallel (vcat) for b in 1:rf.n_estimators
-        bootstrap = rand(1:n_samples, n_samples)
-        sample_weight = sample_weights(bootstrap)
-        example = Trees.Example{T}(x, y, sample_weight)
         tree = Trees.Tree()
+        sample_weight = sampleweights(tree, n_samples)
+        example = Trees.Example{T}(x, y, sample_weight)
         Trees.fit!(tree, example, rf.criterion, learner.n_max_features, rf.max_depth, rf.min_samples_split)
-        if do_oob
-            tree.sample_weights = sample_weight
-        end
         tree
     end
     if do_oob
@@ -56,7 +52,8 @@ function fit!{T<:TabularData}(rf::RandomForestRegressor, x::T, y::AbstractVector
             oob_predict = 0.
             oob_count = 0
             for tree in learner.trees
-                if tree.sample_weights[s] == 0.0
+                sample_weight = sampleweights(tree, n_samples)
+                if sample_weight[s] == 0.0
                     oob_predict += Trees.predict(tree, vec(x[s, :]))
                     oob_count += 1
                 end
